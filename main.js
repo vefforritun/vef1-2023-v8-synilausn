@@ -1,5 +1,25 @@
-import { createCartLine, showCartContent } from './lib/ui.js';
+import { validateInteger } from './lib/helpers.js';
+import {
+  createCartLine,
+  emptyCart,
+  showCartContent,
+  showCartOrReceipt,
+  updateCartLine,
+  updateCartTotal,
+} from './lib/ui.js';
 
+/**
+ * @typedef {Object} Product
+ * @property {number} id Auðkenni vöru, jákvæð heiltala stærri en 0.
+ * @property {string} title Titill vöru, ekki tómur strengur.
+ * @property {string} description Lýsing á vöru, ekki tómur strengur.
+ * @property {number} price Verð á vöru, jákvæð heiltala stærri en 0.
+ */
+
+/**
+ * Fylki af vörum sem hægt er að kaupa.
+ * @type {Array<Product>}
+ */
 const products = [
   {
     id: 1,
@@ -22,54 +42,111 @@ const products = [
   },
 ];
 
-/** Bæta vöru í körfu */
+/**
+ * Bæta vöru í körfu.
+ * @param {Product} product Vara sem á að bæta í körfu
+ * @param {number} quantity Fjöldi af vöru sem á að bæta í körfu
+ */
 function addProductToCart(product, quantity) {
-  // Hér þarf að finna `<tbody>` í töflu og setja `cartLine` inn í það
-  const cart = document.querySelector('.cart-content');
+  const cartTable = document.querySelector('.cart-table');
+  const cartTableBody = document.querySelector('.cart-table tbody');
 
-  if (!cart) {
-    console.warn('fann ekki .cart');
+  if (!cartTableBody) {
+    console.warn('fann ekki körfu töflu');
     return;
   }
-  
-  // TODO hér þarf að athuga hvort lína fyrir vöruna sé þegar til
-  const cartLine = createCartLine(product, quantity);
-  cart.appendChild(cartLine);
 
-  // Sýna efni körfu
+  // Tilgreinum *hvernig* element við fáum svo getum nálgast `dataset` án þess
+  // að vscode "js check" skili villu
+  /** @type {HTMLTableRowElement | null} */
+  const cartLine = cartTableBody.querySelector(
+    `tr[data-cart-product-id="${product.id}"]`,
+  );
+
+  // Er varan nú þegar í körfu?
+  if (cartLine) {
+    updateCartLine(cartLine, product, quantity);
+  } else {
+    const newCartLine = createCartLine(product, quantity);
+    cartTableBody.appendChild(newCartLine);
+  }
+
+  updateCartTotal(cartTable);
   showCartContent(true);
-
-  // TODO sýna/uppfæra samtölu körfu
 }
 
-function submitHandler(event) {
-  // Komum í veg fyrir að form submiti
+/**
+ * Bæta vöru í körfu.
+ * @param {SubmitEvent} event
+ * @returns
+ */
+function addToCartSubmitHandler(event) {
   event.preventDefault();
-  
-  // Finnum næsta element sem er `<tr>`
-  const parent = event.target.closest('tr')
 
-  // Það er með attribute sem tiltekur auðkenni vöru, t.d. `data-product-id="1"`
-  const productId = Number.parseInt(parent.dataset.productId);
+  if (!event.submitter) {
+    console.warn('fann ekki submitter');
+    return;
+  }
 
-  // Finnum vöru með þessu productId
+  const parent = event.submitter.closest('tr');
+
+  if (!parent) {
+    console.warn('fann ekki tr fyrir form');
+    return;
+  }
+
+  const productId = Number.parseInt(parent.dataset.productId ?? '');
   const product = products.find((i) => i.id === productId);
 
-  // TODO hér þarf að finna fjölda sem á að bæta við körfu með því að athuga
-  // á input
-  const quantity = 1;
+  if (!product) {
+    console.warn('fann ekki vöru', productId);
+    return;
+  }
 
-  // Bætum vöru í körfu (hér væri gott að bæta við athugun á því að varan sé til)
+  /** @type {HTMLInputElement | null} */
+  const quantityInputElement = parent.querySelector(
+    'input[name="quantity"]',
+  );
+  if (!quantityInputElement) {
+    console.warn('gat ekki fundið fjölda input');
+    return;
+  }
+
+  const quantity = Number.parseInt(quantityInputElement.value ?? '', 10);
+  if (!validateInteger(quantity, 1, 99)) {
+    console.warn('fjöldi ekki á bilinu [1, 99]');
+    return;
+  }
+
   addProductToCart(product, quantity);
 }
 
-// Finna öll form með class="add"
-const addToCartForms = document.querySelectorAll('.add')
+// Finnum öll form til að bæta við í körfu og bætum við event handlerum
 
-// Ítra í gegnum þau sem fylki (`querySelectorAll` skilar NodeList)
+/** @type {NodeListOf<HTMLFormElement>} */
+const addToCartForms = document.querySelectorAll('form.add');
+
 for (const form of Array.from(addToCartForms)) {
-  // Bæta submit event listener við hvert
-  form.addEventListener('submit', submitHandler);
+  form.addEventListener('submit', addToCartSubmitHandler);
 }
 
-// TODO bæta við event handler á form sem submittar pöntun
+// Bætum event handler við „Ganga frá kaupum“ form
+const form = document.querySelector('form.cart-form');
+if (form) {
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    emptyCart();
+    showCartOrReceipt(false);
+  });
+} else {
+  console.error('fann ekki körfu form');
+}
+
+// Bætum við event handler við „Kaupa meira“ hlekk
+const shopMoreLink = document.querySelector('.shop-more');
+if (shopMoreLink) {
+  shopMoreLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    showCartOrReceipt(true);
+  });
+}
